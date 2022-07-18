@@ -2,51 +2,167 @@ package gridgen
 
 import (
 	"fmt"
-	"math"
-	"math/rand"
+
+	log "github.com/sirupsen/logrus"
 
 	"io/ioutil"
 	"gopkg.in/yaml.v3"
 )
 
+type Biome struct {
+	layers map[string]*BiomeLayer
+}
+
+type BiomeLayer struct {
+	base string
+	level int
+	stepUpTexture string
+	stepDownTexture string
+	alternatives []string
+	startAt float64
+	stopAt float64
+}
+
+var currentBiome = &Biome {
+	layers: map[string]*BiomeLayer {
+		"water": &BiomeLayer {
+			base: "water",
+			level: 0,
+			startAt: -1,
+			stopAt: 0,
+			stepDownTexture: "construct.png",
+			stepUpTexture: "waterSand.png",
+			alternatives: []string { "water.png" },
+		},
+		"sand": &BiomeLayer {
+			base: "sand",
+			level: 1, 
+			startAt: 0,
+			stopAt: .2,
+			stepDownTexture: "waterSand.png",
+			stepUpTexture: "sandGrass.png",
+		},
+		"grass": &BiomeLayer {
+			base: "grass",
+			level: 2, 
+			startAt: .2,
+			stopAt: 1,
+			stepDownTexture: "grassSand.png",
+			stepUpTexture: "construct.png",
+		},
+	},
+}
+
 type Tile struct {
 	Texture string
 	X int
 	Y int
+	Rot int
 }
 
 type Grid struct {
 	name string
-	Tiles []*Tile
+	Tiles map[int]map[int]*Tile
 	rowCount int
 	colCount int
 }
 
+type SerializableGrid struct {
+	Tiles []*Tile
+}
 
-func Generate() {
-	g := &Grid{}
-	g.name = "hi"
-	g.rowCount = 10
-	g.colCount = 10
+func (g *Grid) build() {
+	g.Tiles = make(map[int]map[int]*Tile)
 
 	for row := 0; row < g.rowCount; row++ {
+		g.Tiles[row] = make(map[int]*Tile)
+
 		for col := 0; col < g.colCount; col++ {
+
+		}
+	}
+}
+
+
+func Generate() {
+	baseGrid := &Grid{}
+	baseGrid.name = "biome"
+	baseGrid.rowCount = 16
+	baseGrid.colCount = 16
+	baseGrid.build()
+
+	for row := 0; row < baseGrid.rowCount; row++ {
+		for col := 0; col < baseGrid.colCount; col++ {
 			t := &Tile{}
 			t.X = row
 			t.Y = col
-			t.Texture = getTileTexture(row, col)
+			t.Texture = getTileBase(row, col)
 
-			g.Tiles = append(g.Tiles, t)
+			baseGrid.Tiles[row][col] = t
 		}
 	}
 
-	write(g)
+	texGrid := &Grid{}
+	texGrid.rowCount = baseGrid.rowCount
+	texGrid.colCount = baseGrid.colCount
+	texGrid.build()
+
+	for row := 0; row < baseGrid.rowCount; row++ {
+		for col := 0; col < baseGrid.colCount; col++ {
+			t := &Tile{}
+			t.X = row
+			t.Y = col
+			t.Texture, t.Rot = reticulateSplines(baseGrid, texGrid, col, row)
+
+			texGrid.Tiles[row][col] = t
+		}
+	}
+
+	write(texGrid)
 }
 
-func write(g *Grid) {
-	fmt.Println("%v", g)
+func reticulateSplines(base *Grid, textured *Grid, row int, col int) (string, int) {
+	selfTile := base.Tiles[row][col]
+	self := currentBiome.layers[selfTile.Texture]
+	
+//	return self + ".png", 0
 
-	yml, err := yaml.Marshal(g)
+	// Dont reticulate the map edges
+	if (row == 0 || row == base.rowCount - 1) { return selfTile.Texture + ".png", 0 }
+	if (col == 0 || col == base.colCount - 1) { return selfTile.Texture + ".png", 0 }
+
+	above := currentBiome.layers[base.Tiles[row - 1][col].Texture]
+	left  := currentBiome.layers[base.Tiles[row][col - 1].Texture]
+	right := currentBiome.layers[base.Tiles[row][col + 1].Texture]
+	below := currentBiome.layers[base.Tiles[row + 1][col].Texture]
+
+	if (above.level < self.level) {return self.stepDownTexture, 0 }
+	if (above.level > self.level) {return self.stepDownTexture, 180 }
+
+	log.WithFields(log.Fields{
+		"above": above.level,
+		"left": left.level, 
+		"right": right.level,
+		"below": below.level,
+		"self": self.level,
+	}).Warnf("Could not match a reticulation rule")
+
+	return selfTile.Texture + ".png", 0
+}
+
+func write(g *Grid) {	
+	sg := &SerializableGrid{}
+
+	for row := 0; row < g.rowCount; row++ {
+		for col := 0; col < g.colCount; col++ {
+			sg.Tiles = append(sg.Tiles, g.Tiles[row][col])
+		}
+	}
+
+
+	fmt.Println("%v", sg)
+
+	yml, err := yaml.Marshal(sg)
 	
 	fmt.Println("%v", err)
 
@@ -56,101 +172,21 @@ func write(g *Grid) {
 }
 
 func printGrid(g *Grid) {
+	for _, t := range g.Tiles {
+		fmt.Println("%0.0f", t)
+	}
 }
 
-func getTileTexture(row int, col int) string {
-	v := perlin(float64(row), float64(col))
+func getTileBase(row int, col int) string {
+	v := perlin2(float64(row), float64(col))
 
-	if (v > -0.2) {
-		return "water.png"
-	} else if (v > -0.5) {
-		return "sand.png"
+	for _, layer := range currentBiome.layers {
+		if v >= layer.startAt && v <= layer.stopAt {
+			return layer.base
+		}
 	}
 
-	return "grass.png"
+	log.Warnf("getTileBase failed to find biome layer for: %v", v)
+	return "grass"
 }
 
-func interpolate(a0 float64, a1 float64, w float64) float64 {
-    /* // You may want clamping by inserting:
-     * if (0.0 > w) return a0;
-     * if (1.0 < w) return a1;
-     */
-    return (a1 - a0) * w + a0;
-    /* // Use this cubic interpolation [[Smoothstep]] instead, for a smooth appearance:
-     * return (a1 - a0) * (3.0 - w * 2.0) * w * w + a0;
-     *
-     * // Use [[Smootherstep]] for an even smoother result with a second derivative equal to zero on boundaries:
-     * return (a1 - a0) * ((w * (w * 6.0 - 15.0) + 10.0) * w * w * w) + a0;
-     */
-}
-
-type vector2 struct {
-	x float64
-	y float64
-}
-
-/* Create pseudorandom direction vector
- */
-func randomGradient(ix int64, iy int64) *vector2 {
-    // No precomputed gradients mean this works for any number of grid coordinates
-    w := int64(8 * 123443);
-    s := w / 2; // rotation width
-    
-	a := ix
-	b := iy
-
-    a *= 3284157443; b ^= a << s | a >> w-s;
-    b *= 1911520717; a ^= b << s | b >> w-s;
-    a *= 2048419325;
-
-    random := rand.Float64() // in [0, 2*Pi]
-
-    v := &vector2{};
-    v.x = math.Cos(random)
-	v.y = math.Sin(random);
-
-    return v;
-}
-
-// Computes the dot product of the distance and gradient vectors.
-func dotGridGradient(ix int64, iy int64, x float64, y float64) float64 {
-    // Get gradient from integer coordinates
-    gradient := randomGradient(ix, iy);
-
-    // Compute the distance vector
-    dx := x - float64(ix)
-    dy := y - float64(iy)
-	
-
-	dotProduct := dx*gradient.x + dy*gradient.y
-
-
-	return dotProduct
-}
-
-// Compute Perlin noise at coordinates x, y
-func perlin(x float64, y float64) float64 {
-    // Determine grid cell coordinates
-    x0 := int64(math.Floor(x))
-    x1 := x0 + 1;
-    y0 := int64(math.Floor(y))
-    y1 := y0 + 1;
-
-    // Determine interpolation weights
-    // Could also use higher order polynomial/s-curve here
-    sx := x - float64(x0);
-    //sy := y - float64(y0);
-
-
-    // Interpolate between grid point gradients
-    n0 := dotGridGradient(x0, y0, x, y);
-    n1 := dotGridGradient(x1, y0, x, y);
-    ix0 := interpolate(n0, n1, sx);
-
-    n0 = dotGridGradient(x0, y1, x, y);
-    n1 = dotGridGradient(x1, y1, x, y);
-    ix1 := interpolate(n0, n1, sx);
-
-    value := interpolate(ix0, ix1, 1);
-    return value;
-}
