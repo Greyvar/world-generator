@@ -9,171 +9,215 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type Biome struct {
-	layers map[string]*BiomeLayer
-}
-
-type BiomeLayer struct {
-	base string
-	level int
-	stepUpTexture string
-	stepDownTexture string
-	alternatives []string
-	startAt float64
-	stopAt float64
-}
-
-var currentBiome = &Biome {
-	layers: map[string]*BiomeLayer {
-		"water": &BiomeLayer {
-			base: "water",
-			level: 0,
-			startAt: -1,
-			stopAt: 0,
-			stepDownTexture: "construct.png",
-			stepUpTexture: "waterSand.png",
-			alternatives: []string { "water.png" },
-		},
-		"sand": &BiomeLayer {
-			base: "sand",
-			level: 1, 
-			startAt: 0,
-			stopAt: .2,
-			stepDownTexture: "waterSand.png",
-			stepUpTexture: "sandGrass.png",
-		},
-		"grass": &BiomeLayer {
-			base: "grass",
-			level: 2, 
-			startAt: .2,
-			stopAt: 1,
-			stepDownTexture: "grassSand.png",
-			stepUpTexture: "construct.png",
-		},
-	},
-}
-
 type Tile struct {
 	Texture string
-	X int
-	Y int
+	Row int
+	Col int
 	Rot int
+	FlipH bool `yaml:"flipH"`
+	FlipV bool `yaml:"flipV"`
 }
 
 type Grid struct {
 	name string
 	Tiles map[int]map[int]*Tile
-	rowCount int
-	colCount int
+	RowCount int
+	ColCount int
 }
 
 type SerializableGrid struct {
 	Tiles []*Tile
+	RowCount int
+	ColCount int
 }
 
 func (g *Grid) build() {
 	g.Tiles = make(map[int]map[int]*Tile)
 
-	for row := 0; row < g.rowCount; row++ {
+	for row := 0; row < g.RowCount; row++ {
 		g.Tiles[row] = make(map[int]*Tile)
 
-		for col := 0; col < g.colCount; col++ {
+		for col := 0; col < g.ColCount; col++ {
+			t := &Tile{
+				Row: row,
+				Col: col,
+				Texture: "water",
+			}
 
+			g.Tiles[row][col] = t
 		}
 	}
 }
 
+type position struct {
+	row int
+	col int
+}
 
-func Generate() {
+func (g *Grid) cellIterator() []*position {
+	ret := make([]*position, 0)
+
+	for row := 0; row < g.RowCount; row++ {
+		for col := 0; col < g.ColCount; col++ {
+			ret = append(ret, &position{
+				row: row,
+				col: col,
+			})
+		}
+	}
+
+	return ret
+}
+
+func GenerateBiomeReticulationTest() {
+
+	base := &Grid{}
+	base.name = "biome reticulation"
+	base.RowCount = 16
+	base.ColCount = 16
+	base.build()
+
+//	drawCross(base, 4, 1, 12, 15, "sand.png")
+//	drawCross(base, 6, 3, 10, 13, "grass")
+
+	drawRect(base, 5, 5, 6, 14, "sand")
+	drawRect(base, 3, 7, 12, 8, "sand")
+	drawRect(base, 3, 10, 12, 12, "sand")
+
+	write(base)
+	write(texturedGrid(base))
+}
+
+func drawCross(g *Grid, startRow int, startCol int, stopRow int, stopCol int, tex string) {
+	drawRect(g, startRow, startCol, stopRow, stopCol, tex)
+	drawRect(g, startCol, startRow, stopCol, stopRow, tex)
+}
+
+func drawRect(g *Grid, startRow int, startCol int, stopRow int, stopCol int, tex string) {
+	for row := startRow; row < stopRow; row++ {
+		for col := startCol; col < stopCol; col++ {
+			g.Tiles[row][col].Texture = tex
+		}
+	}
+}
+
+func Generate(cfg *GenerationConfig) {
 	baseGrid := &Grid{}
 	baseGrid.name = "biome"
-	baseGrid.rowCount = 16
-	baseGrid.colCount = 16
+	baseGrid.RowCount = cfg.RowCount
+	baseGrid.ColCount = cfg.ColCount
 	baseGrid.build()
 
-	for row := 0; row < baseGrid.rowCount; row++ {
-		for col := 0; col < baseGrid.colCount; col++ {
-			t := &Tile{}
-			t.X = row
-			t.Y = col
-			t.Texture = getTileBase(row, col)
+	perlinInit(cfg.Seed)
 
-			baseGrid.Tiles[row][col] = t
+	for _, pos := range baseGrid.cellIterator() {
+		baseTexture := getTileBase(pos.row, pos.col)
+
+		if !cfg.ReticulateSplines {
+			baseTexture += ".png"
 		}
+
+		baseGrid.Tiles[pos.row][pos.col].Texture = baseTexture
+
 	}
 
-	texGrid := &Grid{}
-	texGrid.rowCount = baseGrid.rowCount
-	texGrid.colCount = baseGrid.colCount
-	texGrid.build()
+	generateScenarioButtonLamp(baseGrid)
 
-	for row := 0; row < baseGrid.rowCount; row++ {
-		for col := 0; col < baseGrid.colCount; col++ {
-			t := &Tile{}
-			t.X = row
-			t.Y = col
-			t.Texture, t.Rot = reticulateSplines(baseGrid, texGrid, col, row)
-
-			texGrid.Tiles[row][col] = t
-		}
+	if cfg.ReticulateSplines {
+		write(texturedGrid(baseGrid))
+	} else {
+		write(baseGrid)
 	}
-
-	write(texGrid)
 }
 
-func reticulateSplines(base *Grid, textured *Grid, row int, col int) (string, int) {
+func texturedGrid(baseGrid *Grid) *Grid {
+	texGrid := &Grid{}
+	texGrid.RowCount = baseGrid.RowCount
+	texGrid.ColCount = baseGrid.ColCount
+	texGrid.build()
+
+	for _, pos := range baseGrid.cellIterator() {
+		tex, rot, flipH, flipV := reticulateSplines(baseGrid, texGrid, pos.row, pos.col)
+
+		texGrid.Tiles[pos.row][pos.col].Texture = tex
+		texGrid.Tiles[pos.row][pos.col].Rot = rot
+		texGrid.Tiles[pos.row][pos.col].FlipH = flipH
+		texGrid.Tiles[pos.row][pos.col].FlipV = flipV
+	}
+
+	return texGrid
+}
+
+func reticulateSplines(base *Grid, textured *Grid, row int, col int) (string, int, bool, bool) {
 	selfTile := base.Tiles[row][col]
 	self := currentBiome.layers[selfTile.Texture]
-	
-//	return self + ".png", 0
+	log.Infof("RS Tex: %+v \n", selfTile)
 
 	// Dont reticulate the map edges
-	if (row == 0 || row == base.rowCount - 1) { return selfTile.Texture + ".png", 0 }
-	if (col == 0 || col == base.colCount - 1) { return selfTile.Texture + ".png", 0 }
+	//if (row == 0 || row == base.RowCount - 1) { return selfTile.Texture + ".png", 0 }
+	//if (col == 0 || col == base.ColCount - 1) { return selfTile.Texture + ".png", 0 }
 
-	above := currentBiome.layers[base.Tiles[row - 1][col].Texture]
-	left  := currentBiome.layers[base.Tiles[row][col - 1].Texture]
-	right := currentBiome.layers[base.Tiles[row][col + 1].Texture]
-	below := currentBiome.layers[base.Tiles[row + 1][col].Texture]
+	tex, rot, flipH, flipV := matchRulesToTex(row, col, base, self)
 
-	if (above.level < self.level) {return self.stepDownTexture, 0 }
-	if (above.level > self.level) {return self.stepDownTexture, 180 }
+	if tex == "missing-step-up" {
+		log.Errorf("Missing step up texture")
+		return "missingTextureStepUp.png", 0, false, false
 
-	log.WithFields(log.Fields{
-		"above": above.level,
-		"left": left.level, 
-		"right": right.level,
-		"below": below.level,
-		"self": self.level,
-	}).Warnf("Could not match a reticulation rule")
+	} else if tex == "missing-step-down" {
+		log.Errorf("Missing step down texture")
+		return "missingTextureStepDown.png", 0, false, false
+	} else if tex == "" {
+		return selfTile.Texture + ".png", 0, flipH, flipV
+	}
 
-	return selfTile.Texture + ".png", 0
+
+	return tex, rot, flipH, flipV
+}
+
+func getTileLevel(base *Grid, selfDefault int, row int, col int) int {
+	if row < 0 || row >= base.RowCount || col < 0 || col >= base.ColCount {
+		return selfDefault
+	}
+
+	tileLayer := currentBiome.layers[base.Tiles[row][col].Texture]
+
+	if tileLayer == nil {
+		return selfDefault
+	} else {
+		return tileLayer.level
+	}
 }
 
 func write(g *Grid) {	
-	sg := &SerializableGrid{}
+	sg := &SerializableGrid{
+		RowCount: g.RowCount,
+		ColCount: g.ColCount,
+	}
 
-	for row := 0; row < g.rowCount; row++ {
-		for col := 0; col < g.colCount; col++ {
+	for row := 0; row < g.RowCount; row++ {
+		for col := 0; col < g.ColCount; col++ {
 			sg.Tiles = append(sg.Tiles, g.Tiles[row][col])
 		}
 	}
 
 
-	fmt.Println("%v", sg)
-
 	yml, err := yaml.Marshal(sg)
 	
-	fmt.Println("%v", err)
+	if err != nil {
+		log.Errorf("%v", err)
+	}
 
-	err = ioutil.WriteFile("/home/jread/sandbox/Development/greyvar/greyvar-server/dat/worlds/gen/grids/0.grid", yml, 0644)
+	err = ioutil.WriteFile("../greyvar-server/dat/worlds/gen/grids/0.grid", yml, 0644)
 
-	fmt.Println("%v", err)
+	if err != nil {
+		log.Errorf("%v", err)
+	}
+
 }
 
 func printGrid(g *Grid) {
 	for _, t := range g.Tiles {
-		fmt.Println("%0.0f", t)
+		fmt.Printf("%v", t)
 	}
 }
 

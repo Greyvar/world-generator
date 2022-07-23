@@ -5,5 +5,12 @@ import (
 )
 
 func main() {
-	gridgen.Generate()
+	//gridgen.GenerateBiomeReticulationTest()
+	
+	gridgen.Generate(&gridgen.GenerationConfig{
+		RowCount: 16,
+		ColCount: 20,
+		Seed: int64(1345),
+		ReticulateSplines: true,
+	});
 }

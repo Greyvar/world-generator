@@ -14,9 +14,7 @@ const (
 	numberOfIterations = int32(3)
 )
 
-func init() {
-//	seed := int64(time.Now().UnixNano())
-	seed := int64(1337)
+func perlinInit(seed int64) {
 	p = perlin.NewPerlin(alpha, beta, numberOfIterations, seed)
 }
 
