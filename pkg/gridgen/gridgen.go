@@ -207,7 +207,7 @@ func write(g *Grid) {
 		log.Errorf("%v", err)
 	}
 
-	err = ioutil.WriteFile("../greyvar-server/dat/worlds/gen/grids/0.grid", yml, 0644)
+	err = ioutil.WriteFile("../server/dat/worlds/gen/grids/0.grid", yml, 0644)
 
 	if err != nil {
 		log.Errorf("%v", err)
