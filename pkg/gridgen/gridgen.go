@@ -7,6 +7,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/greyvar/datlib/gridfiles"
+	"io/ioutil"
+	"gopkg.in/yaml.v3"
 )
 
 func GenerateBiomeReticulationTest() {
@@ -124,6 +126,33 @@ func getTileLevel(base *gridfiles.Grid, selfDefault int, row uint32, col uint32)
 	} else {
 		return tileLayer.level
 	}
+}
+
+func write(g *gridfiles.Grid) {	
+	sg := &SerializableGrid{
+		RowCount: g.RowCount,
+		ColCount: g.ColCount,
+	}
+
+	for row := 0; row < g.RowCount; row++ {
+		for col := 0; col < g.ColCount; col++ {
+			sg.Tiles = append(sg.Tiles, g.Tiles[row][col])
+		}
+	}
+
+
+	yml, err := yaml.Marshal(sg)
+	
+	if err != nil {
+		log.Errorf("%v", err)
+	}
+
+	err = ioutil.WriteFile("../server/dat/worlds/gen/grids/0.grid", yml, 0644)
+
+	if err != nil {
+		log.Errorf("%v", err)
+	}
+
 }
 
 func printGrid(g *gridfiles.Grid) {
