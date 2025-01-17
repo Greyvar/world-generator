@@ -1,2 +1,2 @@
 build:
-	go build github.com/greyvar/world-generator/cmd/worldgen
+	go build -o world-generator
