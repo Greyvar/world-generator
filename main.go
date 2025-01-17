@@ -8,9 +8,9 @@ func main() {
 	//gridgen.GenerateBiomeReticulationTest()
 	
 	gridgen.Generate(&gridgen.GenerationConfig{
-		RowCount: 16,
-		ColCount: 20,
-		Seed: int64(1345),
+		RowCount: uint32(16),
+		ColCount: uint32(20),
+		Seed: int64(1347),
 		ReticulateSplines: true,
 	});
 }

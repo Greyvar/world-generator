@@ -2,9 +2,10 @@ package gridgen;
 
 import (
 	log "github.com/sirupsen/logrus"
+	"github.com/greyvar/datlib/gridfiles"
 )
 
-func matchRulesToTex(row int, col int, base *Grid, self *BiomeLayer) (string, int, bool, bool) {
+func matchRulesToTex(row uint32, col uint32, base *gridfiles.Grid, self *BiomeLayer) (string, int32, bool, bool) {
 	n := getTileLevel(base, self.level, row - 1, col)
 	e := getTileLevel(base, self.level, row, col + 1)
 	w  := getTileLevel(base, self.level, row, col - 1)
